@@ -14,15 +14,22 @@ $server = new nusoap_server();
 $namespace = 'urn:HotelService';
 $server->configureWSDL('HotelService', $namespace);
 
-function ejecutarOperacionHotel(callable $operacion): mixed
+function ejecutarOperacionHotel(string $operacion, callable $accion): mixed
 {
     if (! validarAutenticacionSOAP()) {
         http_response_code(401);
 
         return new soap_fault('SOAP-ENV:Client', '', '401 Unauthorized: usuario o token invalido.');
     }
+
+    if (! autorizarOperacionSOAP($operacion)) {
+        http_response_code(403);
+
+        return new soap_fault('SOAP-ENV:Client', '', '403 Forbidden: permisos insuficientes para ejecutar este método.');
+    }
+
     try {
-        return $operacion();
+        return $accion();
     } catch (Throwable $error) {
         error_log($error->getMessage());
 
@@ -34,42 +41,42 @@ function registrarHabitacion($numero, $tipo, $precio): mixed
 {
     global $habitacionModel;
 
-    return ejecutarOperacionHotel(fn () => $habitacionModel->registrar($numero, $tipo, $precio));
+    return ejecutarOperacionHotel('registrarHabitacion', fn () => $habitacionModel->registrar($numero, $tipo, $precio));
 }
 
 function consultarHabitacion($id): mixed
 {
     global $habitacionModel;
 
-    return ejecutarOperacionHotel(fn () => json_encode($habitacionModel->consultar($id), JSON_THROW_ON_ERROR));
+    return ejecutarOperacionHotel('consultarHabitacion', fn () => json_encode($habitacionModel->consultar($id), JSON_THROW_ON_ERROR));
 }
 
 function listarHabitaciones(): mixed
 {
     global $habitacionModel;
 
-    return ejecutarOperacionHotel(fn () => json_encode($habitacionModel->listar(), JSON_THROW_ON_ERROR));
+    return ejecutarOperacionHotel('listarHabitaciones', fn () => json_encode($habitacionModel->listar(), JSON_THROW_ON_ERROR));
 }
 
 function actualizarHabitacion($id, $tipo, $precio, $estado): mixed
 {
     global $habitacionModel;
 
-    return ejecutarOperacionHotel(fn () => $habitacionModel->actualizar($id, $tipo, $precio, $estado));
+    return ejecutarOperacionHotel('actualizarHabitacion', fn () => $habitacionModel->actualizar($id, $tipo, $precio, $estado));
 }
 
 function registrarReserva($habitacionId, $huespedId, $fechaEntrada, $fechaSalida): mixed
 {
     global $reservaModel;
 
-    return ejecutarOperacionHotel(fn () => $reservaModel->registrar($habitacionId, $huespedId, $fechaEntrada, $fechaSalida));
+    return ejecutarOperacionHotel('registrarReserva', fn () => $reservaModel->registrar($habitacionId, $huespedId, $fechaEntrada, $fechaSalida));
 }
 
 function consultarReservas(): mixed
 {
     global $reservaModel;
 
-    return ejecutarOperacionHotel(fn () => json_encode($reservaModel->consultar(), JSON_THROW_ON_ERROR));
+    return ejecutarOperacionHotel('consultarReservas', fn () => json_encode($reservaModel->consultar(), JSON_THROW_ON_ERROR));
 }
 
 $operaciones = [
@@ -86,13 +93,38 @@ foreach ($operaciones as $nombre => $parametros) {
 
 $cuerpo = $GLOBALS['soap_cuerpo_solicitud'];
 $esWsdl = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && (isset($_GET['wsdl']) || isset($_GET['WSDL'])) && $cuerpo === '';
-if (! $esWsdl && ! validarAutenticacionSOAP()) {
-    http_response_code(401);
+
+/**
+ * Responde un fallo SOAP con el codigo HTTP exacto.
+ *
+ * NuSOAP convierte cualquier fault en HTTP 500, asi que los rechazos de
+ * autenticacion y permisos se responden antes de llamar a service().
+ */
+function responderFalloSOAP(int $codigo, string $mensaje): void
+{
+    http_response_code($codigo);
     header('Content-Type: text/xml; charset=utf-8');
     echo '<?xml version="1.0" encoding="UTF-8"?>'
         .'<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><soap:Fault>'
-        .'<faultcode>soap:Client</faultcode><faultstring>401 Unauthorized: usuario o token invalido.</faultstring>'
+        .'<faultcode>soap:Client</faultcode><faultstring>'.htmlspecialchars($mensaje, ENT_QUOTES | ENT_XML1, 'UTF-8').'</faultstring>'
         .'</soap:Fault></soap:Body></soap:Envelope>';
     exit;
 }
+
+if (! $esWsdl) {
+    // 1. Credenciales: usuario y token validos.
+    if (! validarAutenticacionSOAP()) {
+        responderFalloSOAP(401, '401 Unauthorized: usuario o token invalido.');
+    }
+
+    // 2. Operacion: debe existir y el rol debe permitirla.
+    $operacionSolicitada = obtenerOperacionSOAP($cuerpo);
+    if ($operacionSolicitada === null) {
+        responderFalloSOAP(400, '400 Bad Request: solicitud SOAP invalida.');
+    }
+    if (! autorizarOperacionSOAP($operacionSolicitada)) {
+        responderFalloSOAP(403, '403 Forbidden: permisos insuficientes para ejecutar este método.');
+    }
+}
+
 $server->service($cuerpo);

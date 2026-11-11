@@ -4,6 +4,7 @@ USE hotel_db;
 DROP TABLE IF EXISTS reserva;
 DROP TABLE IF EXISTS habitacion;
 DROP TABLE IF EXISTS huesped;
+DROP TABLE IF EXISTS usuarios;
 
 CREATE TABLE habitacion (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -28,6 +29,17 @@ CREATE TABLE reserva (
     fecha_salida DATE NOT NULL,
     estado VARCHAR(20) DEFAULT 'CONFIRMADA',
     FOREIGN KEY (habitacion_id) REFERENCES habitacion(id) ON DELETE CASCADE
+);
+
+-- Usuarios que el servidor SOAP valida con WS-Security.
+-- El rol decide que operaciones puede ejecutar cada usuario.
+CREATE TABLE usuarios (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    api_token VARCHAR(80) DEFAULT NULL UNIQUE,
+    role VARCHAR(30) DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Registro base necesario para la ejecución de pruebas
