@@ -37,6 +37,23 @@ function obtenerCredencialesWsSecurity(string $cuerpo): array
     }
 }
 
+/**
+ * Minutos de vigencia que el servidor SOAP exige al token.
+ *
+ * Debe coincidir con SANCTUM_EXPIRATION de la API. El valor 0 desactiva
+ * el vencimiento en el lado SOAP.
+ */
+function minutosVigenciaTokenSOAP(): int
+{
+    $valor = getenv('SOAP_TOKEN_EXPIRATION_MINUTES');
+
+    if ($valor === false || ! is_numeric($valor)) {
+        return 480;
+    }
+
+    return max(0, (int) $valor);
+}
+
 function validarUsuarioTokenBD(?string $username, ?string $token, ?PDO $pdo = null): bool
 {
     if (! $username || ! $token || ! preg_match('/^\d+\|[A-Za-z0-9]+$/D', $token)) {
@@ -44,11 +61,35 @@ function validarUsuarioTokenBD(?string $username, ?string $token, ?PDO $pdo = nu
     }
     try {
         $pdo ??= getConexion();
-        $stmt = $pdo->prepare('SELECT api_token FROM usuarios WHERE username = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT api_token, token_expira_en FROM usuarios WHERE username = ? LIMIT 1');
         $stmt->execute([$username]);
-        $guardado = $stmt->fetchColumn();
+        $fila = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        return is_string($guardado) && strlen($guardado) === 64 && hash_equals($guardado, hash('sha256', $token));
+        if (! is_array($fila)) {
+            return false;
+        }
+
+        $guardado = $fila['api_token'] ?? null;
+        $valido = is_string($guardado) && strlen($guardado) === 64 && hash_equals($guardado, hash('sha256', $token));
+
+        if (! $valido) {
+            return false;
+        }
+
+        $minutos = minutosVigenciaTokenSOAP();
+        if ($minutos === 0) {
+            return true;
+        }
+
+        // Sin fecha de vencimiento (token anterior a esta columna o vigencia
+        // desactivada en la API) se acepta el token.
+        $expira = $fila['token_expira_en'] ?? null;
+        if (! is_string($expira) || $expira === '') {
+            return true;
+        }
+
+        // La columna guarda UTC en formato Y-m-d H:i:s, comparable como texto.
+        return $expira > gmdate('Y-m-d H:i:s');
     } catch (Throwable) {
         error_log('No se pudo validar el token contra la base de datos SOAP.');
 

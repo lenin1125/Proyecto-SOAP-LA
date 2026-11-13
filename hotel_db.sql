@@ -33,12 +33,15 @@ CREATE TABLE reserva (
 
 -- Usuarios que el servidor SOAP valida con WS-Security.
 -- El rol decide que operaciones puede ejecutar cada usuario.
+-- token_expira_en guarda en UTC el vencimiento del token; debe coincidir
+-- con SANCTUM_EXPIRATION de la API (480 minutos por defecto).
 CREATE TABLE usuarios (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     api_token VARCHAR(80) DEFAULT NULL UNIQUE,
     role VARCHAR(30) DEFAULT NULL,
+    token_expira_en DATETIME DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
