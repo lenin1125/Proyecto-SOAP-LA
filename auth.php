@@ -167,16 +167,11 @@ function obtenerRolUsuarioSOAP(?string $username, ?PDO $pdo = null): ?string
 function operacionesPermitidasPorRol(): array
 {
     return [
-        'administrador' => [
-            'registrarHabitacion',
-            'consultarHabitacion',
-            'listarHabitaciones',
-            'actualizarHabitacion',
-            'registrarReserva',
-            'consultarReservas',
-        ],
+        // El enunciado autoriza solo consultarReservas para estos tres
+        // perfiles: es la unica operacion que la API REST consume.
+        'administrador' => ['consultarReservas'],
         'servicio_habitacion' => ['consultarReservas'],
-        'recepcionista' => ['consultarHabitacion', 'listarHabitaciones', 'consultarReservas'],
+        'recepcionista' => ['consultarReservas'],
         'cajero' => [],
     ];
 }
